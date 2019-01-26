@@ -7,8 +7,8 @@ from time import sleep
 
 
 H = 50
-D = 25600
-learn_rate = 1e-4
+D = 80 * 80
+learn_rate = 3e-4
 discount_factor = 0.99
 batch_size = 10
 
@@ -96,7 +96,7 @@ def reshape(observation):
 
 
 def preprocess(observation):
-    x = np.ravel(observation[34:-16, :, 0])
+    x = np.ravel(observation[34:-16:2, ::2, 0])
     x[x == 144] = 0
     x[x == 109] = 0
     x[x != 0] = 1
