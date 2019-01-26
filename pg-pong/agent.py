@@ -10,9 +10,11 @@ H = 50
 D = 25600
 learn_rate = 1e-4
 discount_factor = 0.99
+batch_size = 10
 
 resume = True
-render = True
+render = False
+plot = True
 
 
 def main():
@@ -21,7 +23,7 @@ def main():
 
     if resume:
         with open("model.p", "rb") as f:
-            W, B = pickle.load(f)
+            W, B, L = pickle.load(f)
     else:
         w1 = np.random.rand(H, D) / math.sqrt(D)    # Xavier init
         w2 = (np.random.rand(1, H) - 0.5) / math.sqrt(H)    # Deducted Uniform(0, 1) mean to eliminate tendency to go UP
@@ -31,12 +33,14 @@ def main():
 
         W = [w1, w2]
         B = [b1, b2]
+        L = []
 
     ep = 0
+    batch_reward = 0
     while True:
         xs, hs = [], []
         ds_log_prob, rs = [], []
-        total_reward = 0
+        ep_reward = 0
         done = False
         prev_x = None
         while not done:
@@ -59,9 +63,11 @@ def main():
             observation, reward, done, info = env.step(action)
 
             rs.append(reward)
-            total_reward += reward
+            ep_reward += reward
 
-        print("Finished episode {0}. Total reward: {1}".format(ep, total_reward))
+        print("Finished episode {0}. Total reward: {1}".format(ep, ep_reward))
+        ep += 1
+        batch_reward += ep_reward
 
         #  We stack all the data from the episode, but this transposes all the vectors so the backprop math is all transposed now
         xs = np.vstack(xs)
@@ -69,18 +75,25 @@ def main():
         ds_log_policy = np.vstack(ds_log_prob)
         rs = np.vstack(rs)
 
+        if ep % batch_size == 0:
+            L.append(batch_reward / batch_size)
+            batch_reward = 0
+            if plot:
+                plt.plot(L)
+                plt.show()
+
         train(W, B, xs, hs, ds_log_policy, rs)
 
-        ep += 1
         if ep % 100 == 0:
             with open("model.p", "wb") as f:
-                pickle.dump([W, B], f)
+                pickle.dump([W, B, L], f)
 
         observation = env.reset()
 
 
 def reshape(observation):
     return np.ravel(observation[34:-16, :, 0])
+
 
 def preprocess(observation):
     x = np.ravel(observation[34:-16, :, 0])
