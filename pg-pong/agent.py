@@ -8,7 +8,7 @@ from time import sleep
 
 H = 50
 D = 80 * 80
-learn_rate = 3e-4
+learn_rate = 1e-4
 discount_factor = 0.99
 batch_size = 10
 
@@ -37,6 +37,8 @@ def main():
 
     ep = 0
     batch_reward = 0
+    dw_buffer = [np.zeros_like(w) for w in W]
+    db_buffer = [np.zeros_like(b) for b in B]
     while True:
         xs, hs = [], []
         ds_log_prob, rs = [], []
@@ -75,14 +77,25 @@ def main():
         ds_log_policy = np.vstack(ds_log_prob)
         rs = np.vstack(rs)
 
+        dw, db = calculate_gradients(W, B, xs, hs, ds_log_policy, rs)
+
+        for i in range(len(W)):
+            dw_buffer[i] += dw[i]
+
+        for i in range(len(B)):
+            db_buffer[i] += db[i]
+
         if ep % batch_size == 0:
             L.append(batch_reward / batch_size)
             batch_reward = 0
+
+            train(W, B, dw_buffer, db_buffer)
+            dw_buffer = [np.zeros_like(w) for w in W]
+            db_buffer = [np.zeros_like(b) for b in B]
+
             if plot:
                 plt.plot(L)
                 plt.show()
-
-        train(W, B, xs, hs, ds_log_policy, rs)
 
         if ep % 100 == 0:
             with open("model.p", "wb") as f:
@@ -115,7 +128,7 @@ def forward_pass(x, w, b, xs, hs):
     return sigmoid(log_prob)
 
 
-def train(w, b, xs, hs, ds_log_prob, rs):
+def calculate_gradients(w, b, xs, hs, ds_log_prob, rs):
     calculate_rewards(rs)
 
     rs -= np.mean(rs)
@@ -125,8 +138,10 @@ def train(w, b, xs, hs, ds_log_prob, rs):
 
     ds_log_prob *= rs     # Modulate gradient with reward
 
-    dw, db = backward_pass(w, b, xs, hs, ds_log_prob)
+    return backward_pass(w, b, xs, hs, ds_log_prob)
 
+
+def train(w, b, dw, db):
     for i in range(len(w)):
         w[i] += learn_rate * dw[i]
 
