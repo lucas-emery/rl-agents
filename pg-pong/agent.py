@@ -8,9 +8,10 @@ from time import sleep
 
 H = 50
 D = 80 * 80
-learn_rate = 1e-4
+learn_rate = 1e-3
 discount_factor = 0.99
 batch_size = 10
+decay_rate = 0.9
 
 resume = True
 render = False
@@ -23,7 +24,8 @@ def main():
 
     if resume:
         with open("model.p", "rb") as f:
-            W, B, L = pickle.load(f)
+            model, L, data = pickle.load(f)
+            grad_var_est = data["grad_var_est"]
     else:
         w1 = np.random.rand(H, D) / math.sqrt(D)    # Xavier init
         w2 = (np.random.rand(1, H) - 0.5) / math.sqrt(H)    # Deducted Uniform(0, 1) mean to eliminate tendency to go UP
@@ -31,14 +33,13 @@ def main():
         b1 = np.random.rand(H)                              # effects in this layer (sigmoid activation)
         b2 = np.zeros(1)
 
-        W = [w1, w2]
-        B = [b1, b2]
+        model = [{"w": w1, "b": b1}, {"w": w2, "b": b2}]
         L = []
+        grad_var_est = [{k: np.zeros_like(v) for k, v in layer.items()} for layer in model]
 
     ep = 0
     batch_reward = 0
-    dw_buffer = [np.zeros_like(w) for w in W]
-    db_buffer = [np.zeros_like(b) for b in B]
+    grad_buffer = [{k: np.zeros_like(v) for k, v in layer.items()} for layer in model]
     while True:
         xs, hs = [], []
         ds_log_prob, rs = [], []
@@ -54,7 +55,7 @@ def main():
             x = cur_x + prev_x if prev_x is not None else np.zeros_like(cur_x)
             prev_x = cur_x
 
-            prob = forward_pass(x, W, B, xs, hs)
+            prob = forward_pass(x, model, xs, hs)
 
             action = 4 if np.random.uniform() < prob else 3
 
@@ -77,21 +78,18 @@ def main():
         ds_log_policy = np.vstack(ds_log_prob)
         rs = np.vstack(rs)
 
-        dw, db = calculate_gradients(W, B, xs, hs, ds_log_policy, rs)
+        grad = calculate_gradients(model, xs, hs, ds_log_policy, rs)
 
-        for i in range(len(W)):
-            dw_buffer[i] += dw[i]
-
-        for i in range(len(B)):
-            db_buffer[i] += db[i]
+        for layer in range(len(model)):
+            for k in model[layer].keys():
+                grad_buffer[layer][k] += grad[layer][k]
 
         if ep % batch_size == 0:
             L.append(batch_reward / batch_size)
             batch_reward = 0
 
-            train(W, B, dw_buffer, db_buffer)
-            dw_buffer = [np.zeros_like(w) for w in W]
-            db_buffer = [np.zeros_like(b) for b in B]
+            train(model, grad_buffer, grad_var_est)
+            grad_buffer = [{k: np.zeros_like(v) for k, v in layer.items()} for layer in model]
 
             if plot:
                 plt.plot(L)
@@ -99,7 +97,7 @@ def main():
 
         if ep % 100 == 0:
             with open("model.p", "wb") as f:
-                pickle.dump([W, B, L], f)
+                pickle.dump([model, L, {"grad_var_est": grad_var_est}], f)
 
         observation = env.reset()
 
@@ -116,19 +114,19 @@ def preprocess(observation):
     return x
 
 
-def forward_pass(x, w, b, xs, hs):
+def forward_pass(x, model, xs, hs):
     xs.append(x)
 
-    h = np.dot(w[0], x) + b[0]
+    h = np.dot(model[0]["w"], x) + model[0]["b"]
     h[h < 0] = 0
 
     hs.append(h)
 
-    log_prob = np.dot(w[1], h) + b[1]
+    log_prob = np.dot(model[1]["w"], h) + model[1]["b"]
     return sigmoid(log_prob)
 
 
-def calculate_gradients(w, b, xs, hs, ds_log_prob, rs):
+def calculate_gradients(model, xs, hs, ds_log_prob, rs):
     calculate_rewards(rs)
 
     rs -= np.mean(rs)
@@ -138,28 +136,27 @@ def calculate_gradients(w, b, xs, hs, ds_log_prob, rs):
 
     ds_log_prob *= rs     # Modulate gradient with reward
 
-    return backward_pass(w, b, xs, hs, ds_log_prob)
+    return backward_pass(model, xs, hs, ds_log_prob)
 
 
-def train(w, b, dw, db):
-    for i in range(len(w)):
-        w[i] += learn_rate * dw[i]
+def train(model, grad, grad_var_est):
+    for layer in range(len(model)):
+        for k in model[layer].keys():
+            grad_var_est[layer][k] = decay_rate * grad_var_est[layer][k] + (1 - decay_rate) * (grad[layer][k] * grad[layer][k])
+            model[layer][k] += learn_rate * grad[layer][k] / (np.sqrt(grad_var_est[layer][k]) + 1e-8)
 
-    for i in range(len(b)):
-        b[i] += learn_rate * db[i]
 
-
-def backward_pass(w, b, xs, hs, ds_log_prob):
+def backward_pass(model, xs, hs, ds_log_prob):
     dw1 = np.dot(ds_log_prob.T, hs)
     db1 = np.sum(ds_log_prob, axis=0)
 
-    dhs = np.dot(ds_log_prob, w[1])
+    dhs = np.dot(ds_log_prob, model[1]["w"])
     dhs[hs == 0] = 0
 
     dw0 = np.dot(dhs.T, xs)
     db0 = np.sum(dhs, axis=0)
 
-    return [dw0, dw1], [db0, db1]
+    return [{"w": dw0, "b": db0}, {"w": dw1, "b": db1}]
 
 
 def calculate_rewards(rs):
