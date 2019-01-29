@@ -12,6 +12,8 @@ learn_rate = 1e-3
 discount_factor = 0.99
 batch_size = 10
 decay_rate = 0.9
+weight_decay = 1e-3
+division_epsilon = 1e-5
 
 resume = True
 render = False
@@ -143,7 +145,8 @@ def train(model, grad, grad_var_est):
     for layer in range(len(model)):
         for k in model[layer].keys():
             grad_var_est[layer][k] = decay_rate * grad_var_est[layer][k] + (1 - decay_rate) * (grad[layer][k] * grad[layer][k])
-            model[layer][k] += learn_rate * grad[layer][k] / (np.sqrt(grad_var_est[layer][k]) + 1e-8)
+            model[layer][k] += learn_rate * grad[layer][k] / (np.sqrt(grad_var_est[layer][k]) + division_epsilon)
+            model[layer][k] *= 1 - weight_decay
 
 
 def backward_pass(model, xs, hs, ds_log_prob):
