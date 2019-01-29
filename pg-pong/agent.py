@@ -52,7 +52,7 @@ def main():
                 sleep(1/60)
 
             cur_x = preprocess(observation)
-            x = cur_x + prev_x if prev_x is not None else np.zeros_like(cur_x)
+            x = cur_x - prev_x if prev_x is not None else np.zeros_like(cur_x)
             prev_x = cur_x
 
             prob = forward_pass(x, model, xs, hs)
@@ -111,7 +111,7 @@ def preprocess(observation):
     x[x == 144] = 0
     x[x == 109] = 0
     x[x != 0] = 1
-    return x
+    return x.astype(np.float)
 
 
 def forward_pass(x, model, xs, hs):
