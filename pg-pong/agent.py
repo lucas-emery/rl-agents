@@ -27,10 +27,10 @@ def main():
             model, L, data = pickle.load(f)
             grad_var_est = data["grad_var_est"]
     else:
-        w1 = np.random.rand(H, D) / math.sqrt(D)    # Xavier init
-        w2 = (np.random.rand(1, H) - 0.5) / math.sqrt(H)    # Deducted Uniform(0, 1) mean to eliminate tendency to go UP
-                                                            # This is possible because negative values have no negative
-        b1 = np.random.rand(H)                              # effects in this layer (sigmoid activation)
+        w1 = np.random.randn(H, D) / math.sqrt(D)       # Xavier init
+        w2 = np.random.randn(1, H) / math.sqrt(H)
+
+        b1 = np.zeros(H)
         b2 = np.zeros(1)
 
         model = [{"w": w1, "b": b1}, {"w": w2, "b": b2}]
