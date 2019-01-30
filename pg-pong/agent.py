@@ -5,15 +5,13 @@ import matplotlib.pyplot as plt
 import pickle
 from time import sleep
 
-
-H = 50
-D = 80 * 80
-learn_rate = 1e-3
-discount_factor = 0.99
-batch_size = 10
-decay_rate = 0.9
-weight_decay = 1e-3
-division_epsilon = 1e-5
+learn_rate = None
+discount_factor = None
+batch_size = None
+var_decay = None
+weight_decay = None
+division_epsilon = None
+var_bias = None
 
 resume = True
 render = False
@@ -21,14 +19,49 @@ plot = True
 
 
 def main():
+    global learn_rate
+    global discount_factor
+    global batch_size
+    global var_decay
+    global weight_decay
+    global division_epsilon
+    global var_bias
+
     env = gym.make('Pong-v0')
     observation = env.reset()
 
     if resume:
         with open("model.p", "rb") as f:
-            model, L, data = pickle.load(f)
+            data = pickle.load(f)
+            model = data["model"]
+            history = data["history"]
             grad_var_est = data["grad_var_est"]
+            episode = data["episode"]
+            H = data["H"]
+            D = data["D"]
+            learn_rate = data["learn_rate"]
+            discount_factor = data["discount_factor"]
+            batch_size = data["batch_size"]
+            var_decay = data["var_decay"]
+            weight_decay = data["weight_decay"]
+            division_epsilon = data["division_epsilon"]
+
+            var_bias = var_decay ** episode
+
+            ema = [-21.0]
+            for i in range(len(history)):
+                ema.append(0.95 * ema[i] + 0.05 * history[i])
     else:
+        H = 100
+        D = 80 * 80
+        learn_rate = 1e-3
+        discount_factor = 0.99
+        batch_size = 10
+        var_decay = 0.9
+        weight_decay = 1e-3
+        division_epsilon = 1e-8
+        episode = 0
+
         w1 = np.random.randn(H, D) / math.sqrt(D)       # Xavier init
         w2 = np.random.randn(1, H) / math.sqrt(H)
 
@@ -36,10 +69,11 @@ def main():
         b2 = np.zeros(1)
 
         model = [{"w": w1, "b": b1}, {"w": w2, "b": b2}]
-        L = []
+        history = []
+        ema = [-21.0]
         grad_var_est = [{k: np.zeros_like(v) for k, v in layer.items()} for layer in model]
+        var_bias = 1
 
-    ep = 0
     batch_reward = 0
     grad_buffer = [{k: np.zeros_like(v) for k, v in layer.items()} for layer in model]
     while True:
@@ -70,8 +104,8 @@ def main():
             rs.append(reward)
             ep_reward += reward
 
-        print("Finished episode {0}. Total reward: {1}".format(ep, ep_reward))
-        ep += 1
+        episode += 1
+        print("Finished episode {0}. Total reward: {1}".format(episode, ep_reward))
         batch_reward += ep_reward
 
         #  We stack all the data from the episode, but this transposes all the vectors so the backprop math is all transposed now
@@ -86,20 +120,24 @@ def main():
             for k in model[layer].keys():
                 grad_buffer[layer][k] += grad[layer][k]
 
-        if ep % batch_size == 0:
-            L.append(batch_reward / batch_size)
+        if episode % batch_size == 0:
+            history.append(batch_reward / batch_size)
             batch_reward = 0
 
             train(model, grad_buffer, grad_var_est)
             grad_buffer = [{k: np.zeros_like(v) for k, v in layer.items()} for layer in model]
 
             if plot:
-                plt.plot(L)
+                ema.append(0.95 * ema[-1] + 0.05 * history[-1])
+                plt.plot(history)
+                plt.plot(ema[1:])
                 plt.show()
 
-        if ep % 100 == 0:
+        if episode % 100 == 0:
             with open("model.p", "wb") as f:
-                pickle.dump([model, L, {"grad_var_est": grad_var_est}], f)
+                pickle.dump({"model": model, "history": history, "H": H, "D": D, "episode": episode, "learn_rate": learn_rate,
+                             "grad_var_est": grad_var_est, "discount_factor": discount_factor, "var_decay": var_decay,
+                             "batch_size": batch_size, "weight_decay": weight_decay, "division_epsilon": division_epsilon}, f)
 
         observation = env.reset()
 
@@ -142,10 +180,12 @@ def calculate_gradients(model, xs, hs, ds_log_prob, rs):
 
 
 def train(model, grad, grad_var_est):
+    global var_bias
+    var_bias *= var_decay
     for layer in range(len(model)):
         for k in model[layer].keys():
-            grad_var_est[layer][k] = decay_rate * grad_var_est[layer][k] + (1 - decay_rate) * (grad[layer][k] * grad[layer][k])
-            model[layer][k] += learn_rate * grad[layer][k] / (np.sqrt(grad_var_est[layer][k]) + division_epsilon)
+            grad_var_est[layer][k] = var_decay * grad_var_est[layer][k] + (1 - var_decay) * (grad[layer][k] * grad[layer][k])
+            model[layer][k] += learn_rate * grad[layer][k] / (np.sqrt(grad_var_est[layer][k] / (1 - var_bias)) + division_epsilon)
             model[layer][k] *= 1 - weight_decay
 
 
