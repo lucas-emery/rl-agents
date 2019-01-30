@@ -93,9 +93,9 @@ def main():
 
             prob = forward_pass(x, model, xs, hs)
 
-            action = 4 if np.random.uniform() < prob else 3
+            action = 2 if np.random.uniform() < prob else 3
 
-            label = 1 if action == 4 else 0     # Fake label for calculating the grad of log(policy) wrt the output layer (log_prob)
+            label = 1 if action == 2 else 0     # Fake label for calculating the grad of log(policy) wrt the output layer (log_prob)
 
             ds_log_prob.append(label - prob)  # If action == UP then grad = 1 - prob else grad = -prob
 
